@@ -107,6 +107,8 @@ claims-data-exporter/
 ├── icons/              # Extension icons
 ├── wizard-down.png     # Logo
 ├── LICENSE             # MIT License
+├── PRIVACY.md          # Privacy Policy
+├── CONTRIBUTING.md     # Contribution guidelines
 └── README.md           # This file
 ```
 
@@ -122,10 +124,12 @@ MIT License - See [LICENSE](LICENSE) file.
 
 This is an open source, community-maintained project.
 
-## 📞 Links
+## 📞 Contact & Links
 
+- **Email**: claimexport987@gmail.com
 - **GitHub**: https://github.com/jacoboressie/claims-data-exporter
 - **Issues**: https://github.com/jacoboressie/claims-data-exporter/issues
+- **Privacy Policy**: [PRIVACY.md](PRIVACY.md)
 - **License**: [MIT License](LICENSE)
 
 ---
