@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      border: 0;
+      outline: 0;
+    }
+
+    html {
+      width: 420px;
+      height: 580px;
+    }
+    
+    body {
+      width: 420px;
+      height: 580px;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
+      color: #101010;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    
+    .container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      background: #fafafa;
+    }
+    
+    /* Header */
+    .header {
+      background: white;
+      padding: 24px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    
+    .header-logo {
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
+    }
+    
+    .header-text {
+      flex: 1;
+    }
+    
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 3px;
+      letter-spacing: -0.3px;
+      color: #101010;
+    }
+    
+    .header p {
+      font-size: 13px;
+      color: #666;
+      font-weight: 400;
+    }
+    
+    /* Content Area */
+    .content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    
+    .step-content {
+      display: none;
+    }
+    
+    .step-content.active {
+      display: block;
+      animation: fadeIn 0.2s ease;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .step-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #101010;
+      letter-spacing: -0.2px;
+    }
+    
+    .step-description {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    
+    /* Cards */
+    .card {
+      background: white;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    
+    .card:hover {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      transition: box-shadow 0.2s;
+    }
+    
+    /* Instructions */
+    .instruction-step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    
+    .instruction-step:last-child {
+      margin-bottom: 0;
+    }
+    
+    .instruction-number {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      background: #101010;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    
+    .instruction-text {
+      color: #101010;
+      padding-top: 1px;
+    }
+    
+    .instruction-text strong {
+      font-weight: 600;
+    }
+    
+    /* Status Badge */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+    
+    .status-badge.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    
+    .status-badge.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+    
+    .status-badge.info {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+    
+    /* Buttons */
+    .button {
+      width: 100%;
+      padding: 11px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    
+    .button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    
+    .button-primary {
+      background: #101010;
+      color: white;
+    }
+    
+    .button-primary:hover:not(:disabled) {
+      background: #202020;
+    }
+    
+    .button-secondary {
+      background: white;
+      color: #101010;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    
+    .button-secondary:hover:not(:disabled) {
+      background: #fafafa;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    
+    .button-group .button {
+      flex: 1;
+    }
+    
+    /* File Upload */
+    .upload-area {
+      border: 2px dashed rgba(0, 0, 0, 0.12);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      background: white;
+      transition: all 0.2s;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    
+    .upload-area:hover {
+      border-color: rgba(0, 0, 0, 0.25);
+      background: #fafafa;
+    }
+    
+    .upload-area.has-file {
+      border-color: #101010;
+      background: #fafafa;
+      border-style: solid;
+    }
+    
+    .upload-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+    
+    .upload-text {
+      font-size: 13px;
+      color: #101010;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    
+    .upload-subtext {
+      font-size: 11px;
+      color: #999;
+    }
+    
+    .file-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    /* Progress Bar */
+    .progress-container {
+      margin: 16px 0;
+      display: none;
+    }
+    
+    .progress-container.visible {
+      display: block;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: #101010;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    
+    .progress-text {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+    }
+    
+    /* Stats */
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 16px 0;
+    }
+    
+    .stat-card {
+      background: white;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #101010;
+      margin-bottom: 2px;
+      letter-spacing: -0.5px;
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      color: #999;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    
+    /* Checkbox */
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 14px;
+      background: white;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 12px;
+    }
+    
+    .checkbox-group:hover {
+      background: #fafafa;
+      border-color: rgba(0, 0, 0, 0.12);
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #101010;
+    }
+    
+    .checkbox-group label {
+      font-size: 13px;
+      color: #101010;
+      cursor: pointer;
+      flex: 1;
+      font-weight: 500;
+    }
+    
+    /* Hide elements */
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <img src="wizard-down.png" alt="Logo" class="header-logo" />
+      <div class="header-text">
+        <h1>Claims Data Exporter</h1>
+        <p>Export your data securely</p>
+      </div>
+    </div>
+
+    <!-- Content Area -->
+    <div class="content">
+      <!-- Step 1: Prepare -->
+      <div class="step-content active" data-step="1">
+        <div class="step-title">Step 1: Download CSV Export</div>
+        <div class="step-description">Export your claims from your claims management system.</div>
+        
+        <div class="card">
+          <div class="instruction-step">
+            <div class="instruction-number">1</div>
+            <div class="instruction-text">
+              In your claims system, go to <strong>Reports</strong>
+            </div>
+          </div>
+          <div class="instruction-step">
+            <div class="instruction-number">2</div>
+            <div class="instruction-text">
+              Select <strong>"All Claims"</strong> or <strong>"Open Claims"</strong>
+            </div>
+          </div>
+          <div class="instruction-step">
+            <div class="instruction-number">3</div>
+            <div class="instruction-text">
+              Click <strong>"Export"</strong> and download CSV file
+            </div>
+          </div>
+        </div>
+
+        <button id="nextToUpload" class="button button-primary">
+          Continue
+        </button>
+      </div>
+
+      <!-- Step 2: Upload -->
+      <div class="step-content" data-step="2">
+        <div class="step-title">Step 2: Upload Your CSV</div>
+        <div class="step-description">Select the CSV file you just downloaded.</div>
+        
+        <input type="file" id="csvUpload" accept=".csv" style="display: none;" />
+        
+        <div id="uploadArea" class="upload-area">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text">Click to select file</div>
+          <div class="upload-subtext">or drag and drop</div>
+          <div id="fileInfo" class="file-info hidden">
+            <span>✓</span>
+            <span id="fileName">No file</span>
+          </div>
+        </div>
+
+        <div class="checkbox-group">
+          <input type="checkbox" id="testMode" />
+          <label for="testMode">Test mode (1 claim only)</label>
+        </div>
+
+        <div class="button-group">
+          <button id="backToPrepare" class="button button-secondary">
+            Back
+          </button>
+          <button id="startProcessing" class="button button-primary" disabled>
+            Start Processing
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Processing -->
+      <div class="step-content" data-step="3">
+        <div class="step-title">Processing Claims...</div>
+        <div class="step-description">Fetching detailed data for each claim.</div>
+        
+        <div class="progress-container visible">
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <div id="progressText" class="progress-text">0 / 0 claims</div>
+        </div>
+
+        <div class="stats hidden" id="stats">
+          <div class="stat-card">
+            <div id="claimCount" class="stat-value">0</div>
+            <div class="stat-label">Claims</div>
+          </div>
+          <div class="stat-card">
+            <div id="personnelCount" class="stat-value">0</div>
+            <div class="stat-label">Personnel</div>
+          </div>
+        </div>
+
+        <div id="processingStatus" class="status-badge info">
+          Processing...
+        </div>
+      </div>
+
+      <!-- Step 4: Download -->
+      <div class="step-content" data-step="4">
+        <div class="step-title">Export Complete</div>
+        <div class="step-description">Your data is ready to download.</div>
+        
+        <div class="status-badge success">
+          ✓ Export successful
+        </div>
+
+        <div class="stats" id="finalStats">
+          <div class="stat-card">
+            <div id="finalClaimCount" class="stat-value">0</div>
+            <div class="stat-label">Claims</div>
+          </div>
+          <div class="stat-card">
+            <div id="finalPersonnelCount" class="stat-value">0</div>
+            <div class="stat-label">Personnel</div>
+          </div>
+        </div>
+
+        <button id="downloadJson" class="button button-primary">
+          Download JSON
+        </button>
+
+        <button id="startOver" class="button button-secondary" style="margin-top: 10px;">
+          Export Another
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
