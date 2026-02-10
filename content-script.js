@@ -5,9 +5,39 @@
 
 console.log('🔄 Claims Data Exporter loaded');
 
+/**
+ * Send a message to popup/background safely.
+ * Won't crash if popup is closed (user switched tabs, etc.)
+ */
+function safeSendMessage(message) {
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      // Check for error (popup closed) and suppress it
+      if (chrome.runtime.lastError) {
+        // Popup is closed - that's fine, progress is saved to storage
+      }
+    });
+  } catch (e) {
+    // Extension context invalidated or similar - ignore
+  }
+}
+
+/**
+ * Persist current export progress to chrome.storage so popup can
+ * pick it up even if it was closed and reopened.
+ */
+function saveProgress(current, total, status) {
+  chrome.storage.local.set({
+    exportProgress: { current, total, status, timestamp: Date.now() }
+  });
+}
+
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'processCsv') {
+    // Clear any previous export state
+    chrome.storage.local.remove(['exportedData', 'exportStats', 'exportProgress', 'exportError']);
+
     processCsvAndFetchData(request.csvText, request.testMode)
       .then(() => {
         sendResponse({ success: true, claimCount: 0 });
@@ -39,8 +69,9 @@ async function processCsvAndFetchData(csvText, testMode = false) {
     // Limit claims in test mode
     const claimsToProcess = testMode ? claims.slice(0, 1) : claims;
     
-    // Notify popup of claim count
-    chrome.runtime.sendMessage({
+    // Notify popup of claim count & save to storage
+    saveProgress(0, claimsToProcess.length, 'Starting...');
+    safeSendMessage({
       action: 'exportProgress',
       current: 0,
       total: claimsToProcess.length,
@@ -55,7 +86,8 @@ async function processCsvAndFetchData(csvText, testMode = false) {
     for (let i = 0; i < claimsToProcess.length; i++) {
       const claim = claimsToProcess[i];
       
-      chrome.runtime.sendMessage({
+      saveProgress(i + 1, claimsToProcess.length, `Processing ${claim.fileNumber}...`);
+      safeSendMessage({
         action: 'exportProgress',
         current: i + 1,
         total: claimsToProcess.length,
@@ -75,25 +107,26 @@ async function processCsvAndFetchData(csvText, testMode = false) {
         });
       }
 
-      // Rate limiting - wait 500ms between claims (after all endpoints fetched)
-      await sleep(500);
+      // Randomized delay between claims (1-2.5s) - mimics a human clicking through
+      // Fixed intervals look bot-like; random ones look like a person browsing
+      await sleep(1000 + Math.random() * 1500);
     }
 
-  // Build the final export data structure
-  // Note: Keeps "claimWizardData" for backwards compatibility with import service
-  const exportData = {
-    claimWizardData: {
-      claims: claimsWithData,
-      exportDate: new Date().toISOString(),
-      exportMethod: 'chrome-extension'
-    },
-    exportInfo: {
-      date: new Date().toISOString(),
-      version: '1.0.0',
-      source: 'chrome-extension',
-      totalClaims: claimsWithData.length
-    }
-  };
+    // Build the final export data structure
+    // Note: Keeps "claimWizardData" for backwards compatibility with import service
+    const exportData = {
+      claimWizardData: {
+        claims: claimsWithData,
+        exportDate: new Date().toISOString(),
+        exportMethod: 'chrome-extension'
+      },
+      exportInfo: {
+        date: new Date().toISOString(),
+        version: '1.0.1',
+        source: 'chrome-extension',
+        totalClaims: claimsWithData.length
+      }
+    };
 
     // Calculate stats
     const stats = {
@@ -101,8 +134,15 @@ async function processCsvAndFetchData(csvText, testMode = false) {
       personnelCount: countUniquePersonnel(claimsWithData)
     };
 
-    // Send completion message
-    chrome.runtime.sendMessage({
+    // Save to storage FIRST (in case popup is closed)
+    chrome.storage.local.set({
+      exportedData: exportData,
+      exportStats: stats,
+      exportProgress: null // Clear progress - we're done
+    });
+
+    // Then notify popup if it's open
+    safeSendMessage({
       action: 'exportComplete',
       data: exportData,
       stats: stats
@@ -110,7 +150,11 @@ async function processCsvAndFetchData(csvText, testMode = false) {
 
   } catch (error) {
     console.error('Export error:', error);
-    chrome.runtime.sendMessage({
+    chrome.storage.local.set({
+      exportError: error.message,
+      exportProgress: null
+    });
+    safeSendMessage({
       action: 'exportError',
       error: error.message
     });
@@ -118,53 +162,158 @@ async function processCsvAndFetchData(csvText, testMode = false) {
 }
 
 /**
+ * Parse entire CSV text into rows of fields.
+ * Handles commas AND newlines inside quoted fields properly.
+ * e.g. "Smith, John" stays as one field, and multi-line notes stay in one row.
+ */
+function parseCsvRows(csvText) {
+  const rows = [];
+  let currentField = '';
+  let currentRow = [];
+  let inQuotes = false;
+
+  for (let i = 0; i < csvText.length; i++) {
+    const char = csvText[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        // Check for escaped quote ("")
+        if (i + 1 < csvText.length && csvText[i + 1] === '"') {
+          currentField += '"';
+          i++; // Skip next quote
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        // Inside quotes: keep everything including commas and newlines
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentField.trim());
+        currentField = '';
+      } else if (char === '\n' || (char === '\r' && csvText[i + 1] === '\n')) {
+        // End of row
+        if (char === '\r') i++; // Skip \n in \r\n
+        currentRow.push(currentField.trim());
+        currentField = '';
+        // Only add non-empty rows
+        if (currentRow.some(f => f.length > 0)) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+      } else {
+        currentField += char;
+      }
+    }
+  }
+
+  // Don't forget the last field/row
+  currentRow.push(currentField.trim());
+  if (currentRow.some(f => f.length > 0)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+/**
  * Parse CSV file to extract claim data
  */
 function parseCsv(csvText) {
-  const lines = csvText.split('\n').filter(line => line.trim());
-  
-  if (lines.length < 2) {
+  // Parse entire CSV respecting quoted fields (handles commas + newlines in quotes)
+  const rows = parseCsvRows(csvText);
+
+  if (rows.length < 2) {
     throw new Error('CSV file is empty or invalid');
   }
 
-  // Parse header row
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  // First row is headers
+  const headers = rows[0];
+  const expectedColumns = headers.length;
   
-  // Find column indices
-  const fileNumberIndex = headers.findIndex(h => 
-    h.toLowerCase().includes('file') || h.toLowerCase().includes('claim')
+  console.log(`CSV has ${rows.length - 1} data rows and ${expectedColumns} columns`);
+  console.log(`Headers: ${headers.join(' | ')}`);
+
+  // Find column index - use specific matching with priority
+  // Priority 1: exact common names
+  const exactNames = ['file number', 'file #', 'file#', 'filenumber', 'claim number', 'claim #', 'claim#', 'claimnumber'];
+  let fileNumberIndex = headers.findIndex(h => 
+    exactNames.includes(h.toLowerCase().trim())
   );
   
+  // Priority 2: starts with "file" or "claim" and contains "number" or "#"
   if (fileNumberIndex === -1) {
-    throw new Error('Could not find claim/file number column in CSV');
+    fileNumberIndex = headers.findIndex(h => {
+      const lower = h.toLowerCase().trim();
+      return (lower.startsWith('file') || lower.startsWith('claim')) && 
+             (lower.includes('number') || lower.includes('#') || lower.includes('no'));
+    });
+  }
+  
+  // Priority 3: fallback to broader match but exclude common false positives
+  if (fileNumberIndex === -1) {
+    const excludePatterns = ['profile', 'filed', 'filename', 'claim status', 'claim type', 'claim date'];
+    fileNumberIndex = headers.findIndex(h => {
+      const lower = h.toLowerCase().trim();
+      if (excludePatterns.some(ex => lower.includes(ex))) return false;
+      return lower.includes('file') || lower.includes('claim');
+    });
+  }
+  
+  if (fileNumberIndex === -1) {
+    throw new Error('Could not find claim/file number column in CSV. Headers found: ' + headers.join(', '));
   }
 
-  // Parse data rows
+  console.log(`Using column "${headers[fileNumberIndex]}" (index ${fileNumberIndex}) for file numbers`);
+
+  // Parse data rows with deduplication
+  const seen = new Set();
   const claims = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+  let skippedBadRows = 0;
+  
+  for (let i = 1; i < rows.length; i++) {
+    const values = rows[i];
+    
+    // Skip rows that don't have enough columns (malformed)
+    if (values.length < fileNumberIndex + 1) {
+      skippedBadRows++;
+      continue;
+    }
+    
     const fileNumber = values[fileNumberIndex];
     
-    if (fileNumber) {
+    if (fileNumber && !seen.has(fileNumber)) {
+      seen.add(fileNumber);
       claims.push({
         fileNumber: fileNumber,
         rowIndex: i
       });
+    } else if (fileNumber && seen.has(fileNumber)) {
+      console.log(`Skipping duplicate file number: ${fileNumber} (row ${i + 1})`);
     }
   }
 
+  if (skippedBadRows > 0) {
+    console.log(`Skipped ${skippedBadRows} malformed rows`);
+  }
+
+  console.log(`Parsed ${claims.length} unique claims from CSV`);
   return claims;
 }
 
 /**
  * Fetch detailed claim data from ClaimWizard API
- * This replicates what the Puppeteer collection service does
+ * Mimics natural browser traffic: search → load claim page → concurrent data fetches
+ * (just like a real user clicking into a claim, which fires all XHRs at once)
  */
 async function fetchClaimDetails(claim) {
   const fileNumber = claim.fileNumber;
   console.log(`Fetching details for claim: ${fileNumber}`);
 
-  // Step 1: Search for claim to get ID and UUID
+  // Step 1: Search for claim to get ID and UUID (sequential - user types and searches)
   const formData = new URLSearchParams();
   formData.append('criteria', fileNumber);
   formData.append('type', '');
@@ -204,10 +353,9 @@ async function fetchClaimDetails(claim) {
     claimDetails: claimInfo
   };
 
-  // Step 2: Fetch full claim details (uses UUID not ID!)
-  console.log(`  Fetching main details...`);
+  // Step 2: Fetch full claim details first (needs to complete before we process contacts)
+  console.log(`  Loading claim page data...`);
   const fullDetails = await fetchApi(`/api/claim/${claimUuid}`);
-  await sleep(300); // Wait 300ms before next API call
   
   if (fullDetails) {
     claimResult.fullClaimData = fullDetails;
@@ -216,7 +364,6 @@ async function fetchClaimDetails(claim) {
     if (fullDetails.propcontacts) {
       const contacts = [];
       
-      // Primary contact
       if (fullDetails.propcontacts.c) {
         const primary = fullDetails.propcontacts.c;
         contacts.push({
@@ -231,7 +378,6 @@ async function fetchClaimDetails(claim) {
         });
       }
       
-      // Additional contacts
       if (fullDetails.propcontacts.cc && Array.isArray(fullDetails.propcontacts.cc)) {
         fullDetails.propcontacts.cc.forEach(contact => {
           contacts.push({
@@ -250,118 +396,77 @@ async function fetchClaimDetails(claim) {
       claimResult.contacts = contacts;
     }
 
-    // Extract personnel, phases from fullClaimData
     if (fullDetails.personnel) claimResult.personnel = fullDetails.personnel;
     if (fullDetails.phases) claimResult.phases = fullDetails.phases;
   }
 
-  // Step 3: Fetch insurance
-  console.log(`  Fetching insurance...`);
-  try {
-    const insurance = await fetchApi(`/api/claim/${claimId}/insurance`);
-    await sleep(300); // Wait between calls
-    if (insurance?.data?.insurance) {
-      claimResult.insurance = insurance.data.insurance;
-    }
-  } catch (e) {
-    console.log(`  No insurance data`);
+  // Step 3: Fire all remaining data fetches concurrently
+  // This mimics what happens when a real user opens a claim page —
+  // the browser fires all the tab/panel XHRs at the same time.
+  console.log(`  Fetching all claim sections...`);
+
+  const [
+    insuranceResult,
+    mortgagesResult,
+    externalResult,
+    actionsResult,
+    ledgerResult,
+    filesResult,
+    notesResult,
+    activityResult
+  ] = await Promise.allSettled([
+    fetchApi(`/api/claim/${claimId}/insurance`),
+    fetchApi(`/api/claim/${claimId}/mortgages/`),
+    fetchApi(`/api/claim/${claimId}/personnel/external/1?ip=1`),
+    fetchApi(`/api/actions/1/${claimUuid}`),
+    fetchApi(`/api/claim/${claimId}/ledger`),
+    fetchAllFiles(claimId),
+    fetchApi(`/api/claim/${claimId}/notes`),
+    fetchApi(`/api/claim/${claimUuid}/activity?sc_u=0&sc_e=0&sc_c=0&sc_pub=0&sc_prv=0&sc_s=0&sc_cus=0&sc_t=0`)
+  ]);
+
+  // Process results - each one is { status: 'fulfilled', value } or { status: 'rejected', reason }
+  if (insuranceResult.status === 'fulfilled' && insuranceResult.value?.data?.insurance) {
+    claimResult.insurance = insuranceResult.value.data.insurance;
   }
 
-  // Step 4: Fetch mortgages
-  console.log(`  Fetching mortgages...`);
-  try {
-    const mortgages = await fetchApi(`/api/claim/${claimId}/mortgages/`);
-    await sleep(300); // Wait between calls
-    if (Array.isArray(mortgages)) {
-      claimResult.mortgages = mortgages;
-    }
-  } catch (e) {
-    console.log(`  No mortgage data`);
+  if (mortgagesResult.status === 'fulfilled' && Array.isArray(mortgagesResult.value)) {
+    claimResult.mortgages = mortgagesResult.value;
   }
 
-  // Step 5: Fetch external personnel
-  console.log(`  Fetching external personnel...`);
-  try {
-    const external = await fetchApi(`/api/claim/${claimId}/personnel/external/1?ip=1`);
-    await sleep(300); // Wait between calls
-    if (Array.isArray(external)) {
-      claimResult.externalPersonnel = external;
-    }
-  } catch (e) {
-    console.log(`  No external personnel`);
+  if (externalResult.status === 'fulfilled' && Array.isArray(externalResult.value)) {
+    claimResult.externalPersonnel = externalResult.value;
   }
 
-  // Step 6: Fetch action items (uses UUID)
-  console.log(`  Fetching action items...`);
-  try {
-    const actions = await fetchApi(`/api/actions/1/${claimUuid}`);
-    await sleep(300); // Wait between calls
-    if (Array.isArray(actions)) {
-      claimResult.actionItems = actions;
-    }
-  } catch (e) {
-    console.log(`  No action items`);
+  if (actionsResult.status === 'fulfilled' && Array.isArray(actionsResult.value)) {
+    claimResult.actionItems = actionsResult.value;
   }
 
-  // Step 7: Fetch ledger
-  console.log(`  Fetching ledger...`);
-  try {
-    const ledger = await fetchApi(`/api/claim/${claimId}/ledger`);
-    await sleep(300); // Wait between calls
-    if (ledger && ledger.ledger) {
-      claimResult.ledger = ledger.ledger;
-      claimResult.ledgerNotes = ledger.notes || [];
-      claimResult.ledgerInvoices = ledger.invoices || [];
-    }
-  } catch (e) {
-    console.log(`  No ledger data`);
+  if (ledgerResult.status === 'fulfilled' && ledgerResult.value?.ledger) {
+    claimResult.ledger = ledgerResult.value.ledger;
+    claimResult.ledgerNotes = ledgerResult.value.notes || [];
+    claimResult.ledgerInvoices = ledgerResult.value.invoices || [];
   }
 
-  // Step 8: Fetch files
-  console.log(`  Fetching files...`);
-  try {
-    const files = await fetchAllFiles(claimId);
-    await sleep(300); // Wait between calls
-    if (files && files.length > 0) {
-      claimResult.files = files.map(file => ({
-        title: file.title,
-        filename: file.filename,
-        key: file.key,
-        folder: false,
-        size: file.size,
-        fileDate: file.fileDate,
-        description: file.description,
-        downloadUrl: `https://app.claimwizard.com/api/claim/${claimUuid}/file/${file.key}/?_vw=inline`
-      }));
-    }
-  } catch (e) {
-    console.log(`  No files`);
+  if (filesResult.status === 'fulfilled' && filesResult.value?.length > 0) {
+    claimResult.files = filesResult.value.map(file => ({
+      title: file.title,
+      filename: file.filename,
+      key: file.key,
+      folder: false,
+      size: file.size,
+      fileDate: file.fileDate,
+      description: file.description,
+      downloadUrl: `https://app.claimwizard.com/api/claim/${claimUuid}/file/${file.key}/?_vw=inline`
+    }));
   }
 
-  // Step 9: Fetch notes
-  console.log(`  Fetching notes...`);
-  try {
-    const notes = await fetchApi(`/api/claim/${claimId}/notes`);
-    await sleep(300); // Wait between calls
-    if (Array.isArray(notes)) {
-      claimResult.notes = notes;
-    }
-  } catch (e) {
-    console.log(`  No notes`);
+  if (notesResult.status === 'fulfilled' && Array.isArray(notesResult.value)) {
+    claimResult.notes = notesResult.value;
   }
 
-  // Step 10: Fetch activity (uses UUID)
-  console.log(`  Fetching activity...`);
-  try {
-    const activity = await fetchApi(
-      `/api/claim/${claimUuid}/activity?sc_u=0&sc_e=0&sc_c=0&sc_pub=0&sc_prv=0&sc_s=0&sc_cus=0&sc_t=0`
-    );
-    await sleep(300); // Wait between calls
-    if (activity?.data?.activity && Array.isArray(activity.data.activity)) {
-      claimResult.activity = activity.data.activity;
-    }
-  } catch (e) {
-    console.log(`  No activity`);
+  if (activityResult.status === 'fulfilled' && activityResult.value?.data?.activity && Array.isArray(activityResult.value.data.activity)) {
+    claimResult.activity = activityResult.value.data.activity;
   }
 
   console.log(`  ✓ Complete!`);
@@ -386,7 +491,7 @@ async function fetchAllFiles(claimId, folderKey = null, depth = 0) {
     for (const item of filesResponse) {
       if (item.folder && item.hasChildren && item.key && item.key !== 'ATTACHMENTS') {
         // Recursively fetch folder contents
-        await sleep(400); // Slower for nested folder requests
+        await sleep(200); // Small delay for nested folder requests
         const folderFiles = await fetchAllFiles(claimId, item.key, depth + 1);
         allFiles.push(...folderFiles);
       } else if (!item.folder && item.filename) {

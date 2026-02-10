@@ -8,12 +8,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get(['testMode']);
   if (settings.testMode) document.getElementById('testMode').checked = true;
 
-  // Check if we already have exported data
-  const stored = await chrome.storage.local.get(['exportedData', 'exportStats']);
+  // Check current state: completed export, in-progress, or error
+  const stored = await chrome.storage.local.get([
+    'exportedData', 'exportStats', 'exportProgress', 'exportError'
+  ]);
+  
   if (stored.exportedData) {
+    // Export finished while popup was closed — show results
     exportedData = stored.exportedData;
     goToStep(4);
     showFinalStats(stored.exportStats);
+  } else if (stored.exportProgress && stored.exportProgress.current != null) {
+    // Export is still running — show progress step
+    goToStep(3);
+    updateProgress(
+      stored.exportProgress.current,
+      stored.exportProgress.total,
+      stored.exportProgress.status
+    );
+  } else if (stored.exportError) {
+    // Export failed while popup was closed
+    goToStep(3);
+    showProcessingError(stored.exportError);
+    chrome.storage.local.remove(['exportError']);
   }
 
   // Check if user is on ClaimWizard
@@ -62,8 +79,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.storage.local.set({ testMode: e.target.checked });
   });
 
-  // Listen for progress updates
+  // Listen for progress updates via messages (when popup stays open)
   chrome.runtime.onMessage.addListener(handleExportProgress);
+
+  // Also listen for storage changes (picks up progress when popup is reopened mid-export)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    
+    if (changes.exportProgress && changes.exportProgress.newValue) {
+      const p = changes.exportProgress.newValue;
+      if (currentStep === 3 && p.current != null) {
+        updateProgress(p.current, p.total, p.status);
+      }
+    }
+    
+    if (changes.exportedData && changes.exportedData.newValue) {
+      exportedData = changes.exportedData.newValue;
+      const stats = changes.exportStats?.newValue;
+      if (stats) {
+        goToStep(4);
+        showFinalStats(stats);
+      }
+    }
+    
+    if (changes.exportError && changes.exportError.newValue) {
+      showProcessingError(changes.exportError.newValue);
+      chrome.storage.local.remove(['exportError']);
+    }
+  });
 });
 
 async function checkClaimWizardStatus() {
@@ -240,7 +283,7 @@ function downloadJson() {
 
 function startOver() {
   // Clear data
-  chrome.storage.local.remove(['exportedData', 'exportStats']);
+  chrome.storage.local.remove(['exportedData', 'exportStats', 'exportProgress', 'exportError']);
   exportedData = null;
   uploadedFile = null;
   
