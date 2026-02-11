@@ -469,8 +469,8 @@
 
       <!-- Step 3: Processing -->
       <div class="step-content" data-step="3">
-        <div class="step-title">Processing Claims...</div>
-        <div class="step-description">Fetching detailed data for each claim.</div>
+        <div id="processingTitle" class="step-title">Processing Claims...</div>
+        <div id="processingDesc" class="step-description">Fetching detailed data for each claim.</div>
         
         <div class="progress-container visible">
           <div class="progress-bar">
@@ -492,6 +492,26 @@
 
         <div id="processingStatus" class="status-badge info">
           Processing...
+        </div>
+
+        <!-- Shown when crash/interruption is detected -->
+        <div id="crashRecovery" class="hidden">
+          <div class="status-badge error" style="margin-bottom: 12px;">
+            ⚠ Export was interrupted
+          </div>
+          <p style="font-size: 13px; color: #666; margin-bottom: 14px; line-height: 1.5;">
+            The page crashed or was closed. Your progress has been saved.
+            You can resume where you left off, or download what was collected so far.
+          </p>
+          <button id="resumeExport" class="button button-primary" style="margin-bottom: 8px;">
+            Resume Export
+          </button>
+          <button id="downloadPartial" class="button button-secondary" style="margin-bottom: 8px;">
+            Download What We Have
+          </button>
+          <button id="crashStartOver" class="button button-secondary">
+            Start Over
+          </button>
         </div>
       </div>
 
